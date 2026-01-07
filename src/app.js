@@ -54,6 +54,18 @@ if (process.env.NODE_ENV === 'development') {
   app.use(morgan('combined')); // Standard Apache combined log
 }
 
+
+// Root route (for Render & browser access)
+app.get('/', (req, res) => {
+  res.status(200).json({
+    success: true,
+    name: 'HealthHub API',
+    status: 'running',
+    environment: process.env.NODE_ENV,
+    timestamp: new Date().toISOString()
+  });
+});
+
 // ======================
 // ROUTES
 // ======================
@@ -92,13 +104,13 @@ app.get('/api/test', (req, res) => {
 // ======================
 // ERROR HANDLING
 // ======================
-
 // 404 Handler - Route not found
 app.use((req, res, next) => {
   const error = new Error(`Route not found - ${req.originalUrl}`);
   error.statusCode = 404;
   next(error);
 });
+
 
 // Global Error Handler
 app.use((error, req, res, next) => {
