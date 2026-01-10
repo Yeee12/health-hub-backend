@@ -17,7 +17,7 @@ Built with Node.js, Express, MongoDB, and Paystack integration.
 ### Installation
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/healthhub-backend.git
+git clone https://github.com/Yeee12/healthhub-backend.git
 cd healthhub-backend
 
 # Install dependencies
