@@ -1,33 +1,76 @@
+// src/utils/emailService.js
 const nodemailer = require('nodemailer');
 
-// Create transporter
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER, // Your Gmail address
-    pass: process.env.EMAIL_APP_PASSWORD, // Gmail App Password (not regular password)
-  },
+// Verify environment variables
+console.log('📧 Email Configuration:');
+console.log('EMAIL_USER:', process.env.EMAIL_USER || '❌ NOT SET');
+console.log('EMAIL_PASSWORD:', process.env.EMAIL_PASSWORD ? '✅ SET' : '❌ NOT SET');
+
+if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
+  console.error('⚠️ WARNING: Email credentials missing in .env file!');
+}
+
+// Create transporter with proper timeout settings
+const createTransporter = () => {
+  try {
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASSWORD,
+      },
+      // Add timeout settings to prevent hanging
+      connectionTimeout: 15000, // 15 seconds
+      greetingTimeout: 15000,
+      socketTimeout: 15000,
+      debug: false, // Set to true only for debugging
+      logger: false, // Set to true only for debugging
+    });
+
+    console.log('✅ Email transporter created');
+    return transporter;
+  } catch (error) {
+    console.error('❌ Failed to create transporter:', error.message);
+    throw error;
+  }
+};
+
+const transporter = createTransporter();
+
+// Test connection on startup (non-blocking)
+transporter.verify((error, success) => {
+  if (error) {
+    console.error('❌ Email server connection FAILED:', error.message);
+    console.error('⚠️ Emails will fail to send. Please check your EMAIL_USER and EMAIL_PASSWORD in .env');
+  } else {
+    console.log('✅ Email server connection successful!');
+  }
 });
 
 /**
- * Send OTP email to user
+ * Send OTP email to user (ASYNC - doesn't block)
  */
 const sendOtpEmail = async (email, otp, userName) => {
+  console.log('📧 Queuing OTP email to:', email);
+
   const mailOptions = {
-    from: `HealthHub <${process.env.EMAIL_USER}>`,
+    from: `"HealthHub" <${process.env.EMAIL_USER}>`,
     to: email,
     subject: 'Verify Your Email - HealthHub',
+    text: `Hello ${userName || 'User'}! Your HealthHub OTP is: ${otp}. This code is valid for 10 minutes.`,
     html: `
       <!DOCTYPE html>
       <html>
       <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
-          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
           .container { max-width: 600px; margin: 0 auto; padding: 20px; }
           .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
           .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
           .otp-box { background: white; border: 2px dashed #667eea; border-radius: 10px; padding: 20px; text-align: center; margin: 20px 0; }
-          .otp-code { font-size: 32px; font-weight: bold; color: #667eea; letter-spacing: 5px; }
+          .otp-code { font-size: 32px; font-weight: bold; color: #667eea; letter-spacing: 5px; font-family: monospace; }
           .footer { text-align: center; margin-top: 20px; font-size: 12px; color: #666; }
           .warning { background: #fff3cd; border-left: 4px solid #ffc107; padding: 10px; margin: 20px 0; }
         </style>
@@ -69,33 +112,53 @@ const sendOtpEmail = async (email, otp, userName) => {
   };
 
   try {
-    await transporter.sendMail(mailOptions);
-    console.log(`OTP email sent to ${email}`);
+    console.log('📤 Sending OTP email...');
+    const info = await transporter.sendMail(mailOptions);
+    console.log('✅ OTP email sent successfully to:', email);
+    console.log('   Message ID:', info.messageId);
     return true;
   } catch (error) {
-    console.error('Error sending OTP email:', error);
-    throw new Error('Failed to send OTP email');
+    console.error('❌ Failed to send OTP email to:', email);
+    console.error('   Error:', error.message);
+    
+    // Log specific error types
+    if (error.code === 'EAUTH') {
+      console.error('   → SMTP Authentication failed!');
+      console.error('   → Check EMAIL_USER and EMAIL_PASSWORD in .env');
+      console.error('   → For Gmail, use App Password (not regular password)');
+    } else if (error.code === 'ETIMEDOUT' || error.code === 'ESOCKET') {
+      console.error('   → Connection timeout. Network or firewall issue.');
+    } else if (error.code === 'ECONNECTION') {
+      console.error('   → Cannot connect to SMTP server.');
+    }
+    
+    // Don't throw - just log and return false
+    // This prevents blocking the registration process
+    return false;
   }
 };
 
 /**
- * Send welcome email after verification
+ * Send welcome email after verification (ASYNC)
  */
 const sendWelcomeEmail = async (email, userName, userRole) => {
+  console.log('📧 Queuing welcome email to:', email);
+
   const mailOptions = {
-    from: `HealthHub <${process.env.EMAIL_USER}>`,
+    from: `"HealthHub" <${process.env.EMAIL_USER}>`,
     to: email,
     subject: 'Welcome to HealthHub! 🎉',
+    text: `Hello ${userName}! Welcome to HealthHub. Your ${userRole} account is now active.`,
     html: `
       <!DOCTYPE html>
       <html>
       <head>
+        <meta charset="UTF-8">
         <style>
           body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
           .container { max-width: 600px; margin: 0 auto; padding: 20px; }
           .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
           .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
-          .button { display: inline-block; background: #667eea; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; }
           .features { background: white; border-radius: 10px; padding: 20px; margin: 20px 0; }
           .footer { text-align: center; margin-top: 20px; font-size: 12px; color: #666; }
         </style>
@@ -128,10 +191,6 @@ const sendWelcomeEmail = async (email, userName, userRole) => {
               `}
             </div>
             
-            <p style="text-align: center;">
-              <a href="${process.env.APP_URL || 'https://healthhub.com'}" class="button">Open HealthHub</a>
-            </p>
-            
             <p>If you have any questions, feel free to reach out to our support team.</p>
             
             <p>Best regards,<br><strong>The HealthHub Team</strong></p>
@@ -146,17 +205,59 @@ const sendWelcomeEmail = async (email, userName, userRole) => {
   };
 
   try {
-    await transporter.sendMail(mailOptions);
-    console.log(`Welcome email sent to ${email}`);
+    const info = await transporter.sendMail(mailOptions);
+    console.log('✅ Welcome email sent successfully to:', email);
+    console.log('   Message ID:', info.messageId);
     return true;
   } catch (error) {
-    console.error('Error sending welcome email:', error);
-    // Don't throw error for welcome email - it's not critical
+    console.error('❌ Failed to send welcome email to:', email);
+    console.error('   Error:', error.message);
     return false;
+  }
+};
+
+/**
+ * Test email connection
+ */
+const testEmailConnection = async () => {
+  try {
+    console.log('🔍 Testing email connection...');
+    await transporter.verify();
+    console.log('✅ Email connection test successful!');
+    return true;
+  } catch (error) {
+    console.error('❌ Email connection test failed:', error.message);
+    return false;
+  }
+};
+
+/**
+ * Send email with retry logic (use this wrapper for important emails)
+ */
+const sendEmailWithRetry = async (emailFunction, maxRetries = 2) => {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const result = await emailFunction();
+      return result;
+    } catch (error) {
+      console.error(`❌ Email send attempt ${attempt} failed:`, error.message);
+      
+      if (attempt === maxRetries) {
+        console.error('❌ All email send attempts exhausted');
+        return false;
+      }
+      
+      // Wait before retrying (exponential backoff)
+      const waitTime = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+      console.log(`⏳ Retrying in ${waitTime}ms...`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
   }
 };
 
 module.exports = {
   sendOtpEmail,
   sendWelcomeEmail,
+  testEmailConnection,
+  sendEmailWithRetry,
 };
