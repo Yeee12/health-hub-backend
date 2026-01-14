@@ -76,21 +76,18 @@ class AuthService {
     console.log(`🔐 Generated OTP for ${email}: ${otp}`);
     console.log('📧 Queuing OTP email to:', email);
 
-    // ⚡ CRITICAL FIX: Send OTP email ASYNCHRONOUSLY (don't await)
-    // This prevents blocking the response if email service is slow
-    sendOtpEmail(email, otp, firstName)
-      .then((result) => {
-        if (result && result.success) {
-          console.log('✅ OTP email sent successfully to:', email);
-        } else {
-          console.error('❌ Failed to send OTP email to:', email);
-          console.error('   Error:', result?.error || 'Unknown error');
-        }
-      })
-      .catch((emailError) => {
-        console.error('❌ Failed to send OTP email:', emailError.message);
-        // In production, log to monitoring service (e.g., Sentry)
-      });
+ // ✅ NEW CODE (Correct - proper boolean handling)
+sendOtpEmail(email, otp, firstName)
+  .then((success) => {
+    if (success) {  // Correct! sendOtpEmail returns boolean
+      console.log('✅ OTP email sent to:', email);
+    } else {
+      console.warn('⚠️ OTP email failed (non-critical)');
+    }
+  })
+  .catch((error) => {
+    console.error('❌ OTP email error:', error.message);
+  });
 
     // Build response - return immediately without waiting for email
     const response = {
