@@ -7,6 +7,10 @@ const morgan = require('morgan');
 
 const app = express();
 
+// ✅ ADDED: Enable trust proxy for Render/production environments
+// This allows Express to correctly identify client IPs behind reverse proxies
+app.set('trust proxy', 1);
+
 // ======================
 // SECURITY MIDDLEWARE
 // ======================
