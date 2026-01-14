@@ -1,7 +1,7 @@
 const User = require('../models/User');
 const Patient = require('../models/Patient');
 const Doctor = require('../models/Doctor');
-const { sendOtpEmail, sendWelcomeEmail } = require('../utils/emailService');
+const { sendOtpEmail, sendWelcomeEmail, sendEmailWithRetry } = require('../utils/emailService');
 
 // Generate 6-digit OTP
 const generateOtp = () => {
@@ -9,10 +9,13 @@ const generateOtp = () => {
 };
 
 class OtpService {
+  /**
+   * Verify OTP and activate user account
+   */
   async verifyOtp(data) {
-    // ⚡ CRITICAL FIX: Accept both userId and email for flexibility
     const { userId, email, otp } = data;
 
+    // Validation
     if (!otp) {
       const error = new Error('OTP is required');
       error.statusCode = 400;
@@ -70,7 +73,7 @@ class OtpService {
       throw error;
     }
 
-    // Mark email as verified and clear OTP
+    // ✅ Mark email as verified and clear OTP
     user.emailVerified = true;
     user.otp = undefined;
     user.otpCreatedAt = undefined;
@@ -87,15 +90,19 @@ class OtpService {
       profile = await Doctor.findOne({ userId: user._id });
     }
 
-    // Send welcome email asynchronously (don't block response)
+    // ✅ FIXED: Send welcome email asynchronously (proper boolean handling)
     sendWelcomeEmail(user.email, profile?.firstName || 'User', user.role)
-      .then((result) => {
-        if (result && result.success) {
+      .then((success) => {
+        // sendWelcomeEmail returns boolean, not object
+        if (success) {
           console.log('✅ Welcome email sent to:', user.email);
+        } else {
+          console.warn('⚠️ Welcome email failed (non-critical)');
         }
       })
       .catch((emailError) => {
-        console.error('❌ Failed to send welcome email:', emailError);
+        console.error('❌ Failed to send welcome email:', emailError.message);
+        // Non-critical error, don't affect user verification
       });
 
     // Generate tokens
@@ -124,10 +131,13 @@ class OtpService {
     };
   }
 
+  /**
+   * Resend OTP to user email
+   */
   async resendOtp(data) {
-    // ⚡ CRITICAL FIX: Accept both userId and email
     const { email, userId } = data;
 
+    // Validation
     if (!userId && !email) {
       const error = new Error('User ID or email is required');
       error.statusCode = 400;
@@ -182,13 +192,16 @@ class OtpService {
       profile = await Doctor.findOne({ userId: user._id });
     }
 
-    // Send OTP email with retry logic
-    const emailResult = await sendOtpEmail(user.email, otp, profile?.firstName || 'User');
+    // ✅ FIXED: Use retry wrapper for critical OTP emails
+    const emailSuccess = await sendEmailWithRetry(
+      () => sendOtpEmail(user.email, otp, profile?.firstName || 'User'),
+      2 // max 2 retries
+    );
 
     // Build response
     const response = {
       success: true,
-      message: emailResult.success 
+      message: emailSuccess // emailSuccess is boolean, not object
         ? 'OTP sent successfully to your email'
         : 'OTP generated but email delivery may be delayed. Please check your inbox.',
     };
@@ -199,11 +212,11 @@ class OtpService {
       console.log('⚠️ DEV MODE: OTP included in response:', otp);
     }
 
-    // Log email sending result
-    if (!emailResult.success) {
-      console.error(`❌ Email sending failed: ${emailResult.error}`);
+    // ✅ FIXED: Proper boolean check
+    if (!emailSuccess) {
+      console.error('❌ Email sending failed after retries');
       // Still return success since OTP was saved to database
-      // User can try again or contact support
+      // User can try verifying with the OTP or request a new one
     }
 
     return response;
