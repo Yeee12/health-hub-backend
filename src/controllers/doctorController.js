@@ -158,7 +158,6 @@ exports.updateProfile = async (req, res) => {
   }
 };
 
-// ✅ NEW: Upload verification documents
 // @desc    Upload verification documents
 // @route   POST /api/doctors/me/documents
 // @access  Private (Doctor only)
@@ -171,81 +170,59 @@ exports.uploadDocuments = [
       if (!doctor) {
         return res.status(404).json({
           success: false,
-          message: 'Doctor profile not found'
+          message: 'Doctor profile not found',
         });
       }
 
-      // Check if documents were uploaded
       if (!req.files || Object.keys(req.files).length === 0) {
         return res.status(400).json({
           success: false,
-          message: 'No files were uploaded'
+          message: 'No files were uploaded',
         });
       }
 
-      // Process each uploaded file
-      const uploadedDocs = [];
       const uploadPromises = [];
 
       for (const [fieldName, files] of Object.entries(req.files)) {
         const file = files[0];
-        
-        // Create upload promise for each file
-        const uploadPromise = new Promise((resolve, reject) => {
-          const uploadStream = cloudinary.uploader.upload_stream(
-            {
-              folder: 'healthhub/doctor-documents',
-              resource_type: 'auto',
-              allowed_formats: ['jpg', 'png', 'pdf'],
-              public_id: `${doctor._id}_${fieldName}_${Date.now()}`
-            },
-            (error, result) => {
-              if (error) {
-                reject(error);
-              } else {
-                // Map field names to document types
-                let documentType;
-                switch (fieldName) {
-                  case 'medicalLicense':
-                    documentType = 'license';
-                    break;
-                  case 'diploma':
-                    documentType = 'degree';
-                    break;
-                  case 'certification':
-                    documentType = 'certificate';
-                    break;
-                  case 'idCard':
-                    documentType = 'other';
-                    break;
-                  default:
-                    documentType = 'other';
-                }
+
+        uploadPromises.push(
+          new Promise((resolve, reject) => {
+            const uploadStream = cloudinary.uploader.upload_stream(
+              {
+                folder: 'healthhub/doctor-documents',
+                resource_type: 'auto',
+                allowed_formats: ['jpg', 'png', 'pdf'],
+                use_filename: true,
+                unique_filename: true,
+              },
+              (error, result) => {
+                if (error) return reject(error);
+
+                let documentType = 'other';
+                if (fieldName === 'medicalLicense') documentType = 'license';
+                if (fieldName === 'diploma') documentType = 'degree';
+                if (fieldName === 'certification') documentType = 'certificate';
+                if (fieldName === 'idCard') documentType = 'other';
 
                 resolve({
                   documentType,
                   documentUrl: result.secure_url,
-                  uploadedAt: new Date()
+                  publicId: result.public_id,
+                  uploadedAt: new Date(),
                 });
               }
-            }
-          );
-          
-          // Write buffer to stream
-          uploadStream.end(file.buffer);
-        });
+            );
 
-        uploadPromises.push(uploadPromise);
+            uploadStream.end(file.buffer);
+          })
+        );
       }
 
-      // Wait for all uploads to complete
-      const results = await Promise.all(uploadPromises);
-      uploadedDocs.push(...results);
+      const uploadedDocs = await Promise.all(uploadPromises);
 
-      // Add documents to doctor's verification documents
       doctor.verificationDocuments.push(...uploadedDocs);
-      
-      // Update verification status to pending if it was rejected
+
       if (doctor.verificationStatus === 'rejected') {
         doctor.verificationStatus = 'pending';
         doctor.rejectionReason = undefined;
@@ -259,18 +236,19 @@ exports.uploadDocuments = [
         data: {
           documentsUploaded: uploadedDocs.length,
           verificationStatus: doctor.verificationStatus,
-          documents: uploadedDocs
-        }
+          documents: uploadedDocs,
+        },
       });
     } catch (error) {
       console.error('Upload documents error:', error);
       res.status(500).json({
         success: false,
-        message: error.message || 'Error uploading documents'
+        message: 'Error uploading documents',
       });
     }
-  }
+  },
 ];
+
 
 // @desc    Get all doctors
 // @route   GET /api/doctors
