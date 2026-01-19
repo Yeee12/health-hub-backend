@@ -10,7 +10,8 @@ const {
   findNearbyDoctors,
   verifyDoctor,
   rejectDoctor,
-  getPendingDoctors
+  getPendingDoctors,
+  uploadDocuments  // ✅ Add this
 } = require('../controllers/doctorController');
 
 const { protect, authorize, optionalAuth } = require('../middleware/auth');
@@ -18,6 +19,7 @@ const { protect, authorize, optionalAuth } = require('../middleware/auth');
 // Doctor-only routes (MUST come first)
 router.get('/me/profile', protect, authorize('doctor'), getMyProfile);
 router.put('/me/profile', protect, authorize('doctor'), updateProfile);
+router.post('/me/documents', protect, authorize('doctor'), uploadDocuments); // ✅ Add this
 
 // Admin-only routes (MUST come before public routes)
 router.get('/admin/pending', protect, authorize('admin'), getPendingDoctors);

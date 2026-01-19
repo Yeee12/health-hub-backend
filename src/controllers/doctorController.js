@@ -1,6 +1,34 @@
 const Doctor = require('../models/Doctor');
 const User = require('../models/User');
 const Availability = require('../models/Availability');
+const cloudinary = require('../config/cloudinary'); // ✅ Add this
+const multer = require('multer'); // ✅ Add this
+const path = require('path'); // ✅ Add this
+
+// ✅ Configure multer for file uploads
+const storage = multer.memoryStorage();
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit per file
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = /jpeg|jpg|png|pdf/;
+    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = allowedTypes.test(file.mimetype);
+
+    if (extname && mimetype) {
+      return cb(null, true);
+    } else {
+      cb(new Error('Only .png, .jpg, .jpeg and .pdf files are allowed'));
+    }
+  }
+}).fields([
+  { name: 'medicalLicense', maxCount: 1 },
+  { name: 'diploma', maxCount: 1 },
+  { name: 'certification', maxCount: 1 },
+  { name: 'idCard', maxCount: 1 }
+]);
 
 // @desc    Get doctor profile
 // @route   GET /api/doctors/:id
@@ -40,7 +68,7 @@ exports.getDoctor = async (req, res) => {
 };
 
 // @desc    Get current doctor profile
-// @route   GET /api/doctors/me
+// @route   GET /api/doctors/me/profile
 // @access  Private (Doctor only)
 exports.getMyProfile = async (req, res) => {
   try {
@@ -69,7 +97,7 @@ exports.getMyProfile = async (req, res) => {
 };
 
 // @desc    Update doctor profile
-// @route   PUT /api/doctors/me
+// @route   PUT /api/doctors/me/profile
 // @access  Private (Doctor only)
 exports.updateProfile = async (req, res) => {
   try {
@@ -129,6 +157,120 @@ exports.updateProfile = async (req, res) => {
     });
   }
 };
+
+// ✅ NEW: Upload verification documents
+// @desc    Upload verification documents
+// @route   POST /api/doctors/me/documents
+// @access  Private (Doctor only)
+exports.uploadDocuments = [
+  upload,
+  async (req, res) => {
+    try {
+      const doctor = await Doctor.findOne({ userId: req.user._id });
+
+      if (!doctor) {
+        return res.status(404).json({
+          success: false,
+          message: 'Doctor profile not found'
+        });
+      }
+
+      // Check if documents were uploaded
+      if (!req.files || Object.keys(req.files).length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'No files were uploaded'
+        });
+      }
+
+      // Process each uploaded file
+      const uploadedDocs = [];
+      const uploadPromises = [];
+
+      for (const [fieldName, files] of Object.entries(req.files)) {
+        const file = files[0];
+        
+        // Create upload promise for each file
+        const uploadPromise = new Promise((resolve, reject) => {
+          const uploadStream = cloudinary.uploader.upload_stream(
+            {
+              folder: 'healthhub/doctor-documents',
+              resource_type: 'auto',
+              allowed_formats: ['jpg', 'png', 'pdf'],
+              public_id: `${doctor._id}_${fieldName}_${Date.now()}`
+            },
+            (error, result) => {
+              if (error) {
+                reject(error);
+              } else {
+                // Map field names to document types
+                let documentType;
+                switch (fieldName) {
+                  case 'medicalLicense':
+                    documentType = 'license';
+                    break;
+                  case 'diploma':
+                    documentType = 'degree';
+                    break;
+                  case 'certification':
+                    documentType = 'certificate';
+                    break;
+                  case 'idCard':
+                    documentType = 'other';
+                    break;
+                  default:
+                    documentType = 'other';
+                }
+
+                resolve({
+                  documentType,
+                  documentUrl: result.secure_url,
+                  uploadedAt: new Date()
+                });
+              }
+            }
+          );
+          
+          // Write buffer to stream
+          uploadStream.end(file.buffer);
+        });
+
+        uploadPromises.push(uploadPromise);
+      }
+
+      // Wait for all uploads to complete
+      const results = await Promise.all(uploadPromises);
+      uploadedDocs.push(...results);
+
+      // Add documents to doctor's verification documents
+      doctor.verificationDocuments.push(...uploadedDocs);
+      
+      // Update verification status to pending if it was rejected
+      if (doctor.verificationStatus === 'rejected') {
+        doctor.verificationStatus = 'pending';
+        doctor.rejectionReason = undefined;
+      }
+
+      await doctor.save();
+
+      res.status(200).json({
+        success: true,
+        message: 'Documents uploaded successfully',
+        data: {
+          documentsUploaded: uploadedDocs.length,
+          verificationStatus: doctor.verificationStatus,
+          documents: uploadedDocs
+        }
+      });
+    } catch (error) {
+      console.error('Upload documents error:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Error uploading documents'
+      });
+    }
+  }
+];
 
 // @desc    Get all doctors
 // @route   GET /api/doctors
@@ -350,7 +492,7 @@ exports.rejectDoctor = async (req, res) => {
 };
 
 // @desc    Get pending doctors (Admin only)
-// @route   GET /api/doctors/pending
+// @route   GET /api/doctors/admin/pending
 // @access  Private (Admin only)
 exports.getPendingDoctors = async (req, res) => {
   try {
