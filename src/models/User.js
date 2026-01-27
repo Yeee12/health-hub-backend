@@ -79,7 +79,12 @@ const userSchema = new mongoose.Schema({
   lastLogin: {
     type: Date,
     default: null
-  }
+  },
+    medicalProfileId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'MedicalProfile',
+    default: null,
+  },
 }, {
   timestamps: true // Adds createdAt and updatedAt automatically
 });

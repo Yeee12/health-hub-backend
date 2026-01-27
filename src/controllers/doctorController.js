@@ -177,77 +177,65 @@ exports.uploadDocuments = [
       if (!req.files || Object.keys(req.files).length === 0) {
         return res.status(400).json({
           success: false,
-          message: 'No files were uploaded',
+          message: 'No files uploaded',
         });
       }
 
-      const uploadPromises = [];
+      const uploadedDocs = [];
 
       for (const [fieldName, files] of Object.entries(req.files)) {
         const file = files[0];
 
-        uploadPromises.push(
-          new Promise((resolve, reject) => {
-            const uploadStream = cloudinary.uploader.upload_stream(
+        const result = await new Promise((resolve, reject) => {
+          cloudinary.uploader
+            .upload_stream(
               {
                 folder: 'healthhub/doctor-documents',
                 resource_type: 'auto',
-                allowed_formats: ['jpg', 'png', 'pdf'],
-                use_filename: true,
-                unique_filename: true,
               },
               (error, result) => {
-                if (error) return reject(error);
-
-                let documentType = 'other';
-                if (fieldName === 'medicalLicense') documentType = 'license';
-                if (fieldName === 'diploma') documentType = 'degree';
-                if (fieldName === 'certification') documentType = 'certificate';
-                if (fieldName === 'idCard') documentType = 'other';
-
-                resolve({
-                  documentType,
-                  documentUrl: result.secure_url,
-                  publicId: result.public_id,
-                  uploadedAt: new Date(),
-                });
+                if (error) reject(error);
+                else resolve(result);
               }
-            );
+            )
+            .end(file.buffer);
+        });
 
-            uploadStream.end(file.buffer);
-          })
-        );
+        const documentTypeMap = {
+          medicalLicense: 'license',
+          diploma: 'degree',
+          certification: 'certificate',
+          idCard: 'other',
+        };
+
+        uploadedDocs.push({
+          documentType: documentTypeMap[fieldName] ?? 'other',
+          documentUrl: result.secure_url, // ✅ ONLY THIS
+          uploadedAt: new Date(),
+        });
       }
 
-      const uploadedDocs = await Promise.all(uploadPromises);
-
-      doctor.verificationDocuments.push(...uploadedDocs);
-
-      if (doctor.verificationStatus === 'rejected') {
-        doctor.verificationStatus = 'pending';
-        doctor.rejectionReason = undefined;
-      }
+      doctor.verificationDocuments = uploadedDocs;
+      doctor.verificationStatus = 'pending';
+      doctor.rejectionReason = undefined;
 
       await doctor.save();
 
       res.status(200).json({
         success: true,
         message: 'Documents uploaded successfully',
-        data: {
-          documentsUploaded: uploadedDocs.length,
-          verificationStatus: doctor.verificationStatus,
-          documents: uploadedDocs,
-        },
+        data: doctor.verificationDocuments,
       });
     } catch (error) {
-      console.error('Upload documents error:', error);
+      console.error(error);
       res.status(500).json({
         success: false,
-        message: 'Error uploading documents',
+        message: 'Document upload failed',
       });
     }
   },
 ];
+
 
 
 // @desc    Get all doctors

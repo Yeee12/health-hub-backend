@@ -4,6 +4,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const morgan = require('morgan');
+const medicalProfileRoutes = require('./routes/medicalProfile');
 
 const app = express();
 
@@ -95,6 +96,7 @@ app.use('/api/consultations', require('./routes/consultations'));
 app.use('/api/reviews', require('./routes/reviews'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/messages', require('./routes/messages'));
+app.use('/api/medical-profile', medicalProfileRoutes);
 
 // Test route
 app.get('/api/test', (req, res) => {
